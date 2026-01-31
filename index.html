@@ -402,7 +402,14 @@
         obstacles = []; items = []; particles = []; enemies = []; projectiles = [];
         player.x = canvas.width/2; player.y = 200;
         els.mainMenu.classList.add('hidden'); els.gameOver.classList.add('hidden');
-        if('ontouchstart' in window) els.btnShoot.classList.remove('hidden');
+        // only show mobile shoot button when device is small/touch
+        if (isMobileDevice()) {
+            els.btnShoot.classList.remove('hidden');
+            // try to enter fullscreen on mobile (user gesture - start button)
+            try { if (document.fullscreenEnabled) document.documentElement.requestFullscreen().catch(()=>{}); } catch(e){}
+        } else {
+            els.btnShoot.classList.add('hidden');
+        }
         playSound('buy');
     }
 
@@ -440,7 +447,10 @@
         if (iframeTimer > 0) iframeTimer--;
         if (shotCooldown > 0) shotCooldown--;
 
-        const speedBase = 0.9 + (state.upgrades.engine * 0.25);
+        const mobile = isMobileDevice();
+        let speedBase = 0.9 + (state.upgrades.engine * 0.25);
+        // reduce movement responsiveness on mobile for smoother control
+        if (mobile) speedBase *= 0.65;
         
         // Keyboard Input
         if (keys['ArrowLeft'] || keys['KeyA']) player.vx -= speedBase;
@@ -468,11 +478,11 @@
                 // Joy Y+ (Screen Down) -> Player VX+ (Game Right)
                 // Joy X- (Screen Left) -> Player VY+ (Game Down) 
                 // Joy X+ (Screen Right) -> Player VY- (Game Up)
-                player.vx += joyY * speedBase * 1.5;
-                player.vy -= joyX * speedBase * 1.5; 
+                player.vx += joyY * speedBase * 1.25;
+                player.vy -= joyX * speedBase * 1.25; 
             } else {
-                player.vx += joyX * speedBase * 1.5;
-                player.vy += joyY * speedBase * 1.5;
+                player.vx += joyX * speedBase * 1.25;
+                player.vy += joyY * speedBase * 1.25;
             }
         }
 
@@ -544,7 +554,9 @@
     function die() {
         if (!gameActive) return;
         gameActive = false; playSound('die'); state.coins += score;
-        els.btnShoot.classList.add('hidden');
+        // hide mobile shoot button and exit fullscreen if active
+        try { if (isMobileDevice()) els.btnShoot.classList.add('hidden'); } catch(e){}
+        try { if (document.fullscreenElement) document.exitFullscreen().catch(()=>{}); } catch(e){}
         setTimeout(() => {
             els.finalStats.innerText = `${getText('depth')}: ${Math.floor(depth)}m | ${getText('loot')}: $${score}`;
             els.gameOver.classList.remove('hidden');
@@ -828,9 +840,17 @@
             const tx = t.clientX - rect.left; const ty = t.clientY - rect.top;
             const dx = tx - touchInfo.startX; const dy = ty - touchInfo.startY;
             if (Math.hypot(dx, dy) > 6) touchInfo.moved = true;
-            // immediate positioning (feel responsive on mobile)
-            player.x = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, tx - PLAYER_SIZE/2));
-            player.y = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, ty - PLAYER_SIZE/2));
+            // on mobile interpolate towards touch position for smoother/slower movement
+            if (isMobileDevice()) {
+                const targetX = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, tx - PLAYER_SIZE/2));
+                const targetY = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, ty - PLAYER_SIZE/2));
+                player.x += (targetX - player.x) * 0.28;
+                player.y += (targetY - player.y) * 0.28;
+            } else {
+                // immediate positioning (desktop touch or stylus)
+                player.x = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, tx - PLAYER_SIZE/2));
+                player.y = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, ty - PLAYER_SIZE/2));
+            }
             e.preventDefault();
         }
     }, {passive: false});
