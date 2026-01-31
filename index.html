@@ -16,27 +16,18 @@
             user-select: none;
             -webkit-user-select: none;
         }
+        /* Make the game container cover the full viewport so mobile has no letterboxing */
+        html, body { height: 100%; }
         #game-container {
-            position: relative;
+            position: fixed;
+            inset: 0;
             width: 100vw;
             height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             overflow: hidden;
-        }
-        @media screen and (orientation: portrait) and (max-width: 900px) {
-            #game-container {
-                transform: rotate(90deg);
-                transform-origin: center;
-                width: 100vh;
-                height: 100vw;
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                margin-left: -50vh;
-                margin-top: -50vw;
-            }
+            background: transparent;
         }
         canvas {
             display: block;
@@ -460,30 +451,11 @@
 
         // Joystick Input (Rotation corrected for portrait mobile)
         if (joystickData.active) {
-            const isPortrait = window.innerWidth < window.innerHeight && window.innerWidth < 900;
-            let joyX = joystickData.x;
-            let joyY = joystickData.y;
-            
-            if (isPortrait) {
-                // If phone is upright (portrait), CSS rotates game 90deg.
-                // Screen UP (y-) is Game LEFT (x-).
-                // Screen RIGHT (x+) is Game UP (y-).
-                // Wait, no. CSS rotate(90deg) means:
-                // Visual Left is Screen Top. Visual Right is Screen Bottom.
-                // So dragging joystick UP (Screen Y-) means dragging LEFT relative to visual game.
-                // Dragging joystick RIGHT (Screen X+) means dragging UP relative to visual game.
-                
-                // Let's re-map:
-                // Joy Y- (Screen Up) -> Player VX- (Game Left)
-                // Joy Y+ (Screen Down) -> Player VX+ (Game Right)
-                // Joy X- (Screen Left) -> Player VY+ (Game Down) 
-                // Joy X+ (Screen Right) -> Player VY- (Game Up)
-                player.vx += joyY * speedBase * 1.25;
-                player.vy -= joyX * speedBase * 1.25; 
-            } else {
-                player.vx += joyX * speedBase * 1.25;
-                player.vy += joyY * speedBase * 1.25;
-            }
+            // Joystick maps directly to on-screen movement now that container is not rotated.
+            const joyX = joystickData.x;
+            const joyY = joystickData.y;
+            player.vx += joyX * speedBase * 1.25;
+            player.vy += joyY * speedBase * 1.25;
         }
 
         player.vx *= 0.92; player.vy *= 0.92;
