@@ -150,6 +150,19 @@
             #joystickZone { display: block; }
             #btnShootMobile { display: flex; }
         }
+        @media screen and (orientation: portrait) and (max-width: 900px) {
+            /* Rotate the game container so the game is landscape on portrait phones */
+            #game-container {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                width: 100vh;
+                height: 100vw;
+                transform: translate(-50%, -50%) rotate(90deg);
+                transform-origin: center center;
+            }
+            canvas { width: 100%; height: 100%; }
+        }
         .online-count {
             position: absolute;
             top: 20px;
@@ -340,12 +353,27 @@
     window.addEventListener('keyup', e => keys[e.code] = false);
 
     // Joystick Logic
+    // Convert screen (clientX,clientY) to game canvas coordinates, accounting for mobile portrait rotation
+    function screenToGame(sx, sy) {
+        const rotated = isMobileDevice() && window.innerWidth < window.innerHeight;
+        if (!rotated) {
+            const rect = canvas.getBoundingClientRect();
+            return { x: sx - rect.left, y: sy - rect.top };
+        }
+        // When rotated 90deg CW for portrait phones, map screen coords into rotated canvas space
+        const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+        const tx = sx - cx, ty = sy - cy;
+        const xPrime = ty; // rotated -90deg
+        const yPrime = -tx;
+        return { x: xPrime + canvas.width/2, y: yPrime + canvas.height/2 };
+    }
     els.joystickZone.addEventListener('touchstart', e => {
         e.preventDefault();
         const t = e.touches[0];
+        const g = screenToGame(t.clientX, t.clientY);
         joystickData.active = true;
-        joystickData.originX = t.clientX;
-        joystickData.originY = t.clientY;
+        joystickData.originX = g.x;
+        joystickData.originY = g.y;
         joystickData.x = 0;
         joystickData.y = 0;
         els.joystickKnob.style.transform = `translate(-50%, -50%)`;
@@ -355,17 +383,29 @@
         if (!joystickData.active) return;
         e.preventDefault();
         const t = e.touches[0];
-        let dx = t.clientX - joystickData.originX;
-        let dy = t.clientY - joystickData.originY;
-        const dist = Math.hypot(dx, dy);
+        // map to game coordinates for control values
+        const g = screenToGame(t.clientX, t.clientY);
+        let dx = g.x - joystickData.originX;
+        let dy = g.y - joystickData.originY;
         const maxDist = 35;
+        const dist = Math.hypot(dx, dy);
         if (dist > maxDist) {
             dx = (dx / dist) * maxDist;
             dy = (dy / dist) * maxDist;
         }
         joystickData.x = dx / maxDist;
         joystickData.y = dy / maxDist;
-        els.joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+
+        // For visual knob movement use screen-space offsets so the knob follows the finger visually
+        const rect = els.joystickZone.getBoundingClientRect();
+        let screenOffsetX = t.clientX - (rect.left + rect.width/2);
+        let screenOffsetY = t.clientY - (rect.top + rect.height/2);
+        const sdist = Math.hypot(screenOffsetX, screenOffsetY);
+        if (sdist > maxDist) {
+            screenOffsetX = (screenOffsetX / sdist) * maxDist;
+            screenOffsetY = (screenOffsetY / sdist) * maxDist;
+        }
+        els.joystickKnob.style.transform = `translate(calc(-50% + ${screenOffsetX}px), calc(-50% + ${screenOffsetY}px))`;
     }, {passive: false});
 
     els.joystickZone.addEventListener('touchend', e => {
@@ -784,11 +824,20 @@
     function isMobileDevice() { return ('ontouchstart' in window || navigator.maxTouchPoints > 0) && window.innerWidth < 900; }
 
     function resizeCanvas() {
-        // Keep canvas CSS size == window; internal pixel density kept simple for predictable touch coords
-        canvas.style.width = window.innerWidth + 'px';
-        canvas.style.height = window.innerHeight + 'px';
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        // Keep canvas CSS size == window; swap when rotated on mobile
+        const rotated = isMobileDevice() && window.innerWidth < window.innerHeight;
+        if (rotated) {
+            // use swapped dimensions so the canvas coordinate system matches the rotated view
+            canvas.style.width = window.innerHeight + 'px';
+            canvas.style.height = window.innerWidth + 'px';
+            canvas.width = window.innerHeight;
+            canvas.height = window.innerWidth;
+        } else {
+            canvas.style.width = window.innerWidth + 'px';
+            canvas.style.height = window.innerHeight + 'px';
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
     }
 
     // touch drag / tap-to-shoot logic
@@ -797,9 +846,10 @@
     canvas.addEventListener('touchstart', (e) => {
         if (!gameActive) return;
         const t = e.changedTouches[0];
+        const g = screenToGame(t.clientX, t.clientY);
         touchInfo.id = t.identifier;
         touchInfo.startTime = Date.now();
-        touchInfo.startX = t.clientX; touchInfo.startY = t.clientY; touchInfo.moved = false;
+        touchInfo.startX = g.x; touchInfo.startY = g.y; touchInfo.moved = false;
         e.preventDefault();
     }, {passive: false});
 
@@ -808,20 +858,19 @@
         for (let i=0;i<e.changedTouches.length;i++){
             const t = e.changedTouches[i];
             if (t.identifier !== touchInfo.id) continue;
-            const rect = canvas.getBoundingClientRect();
-            const tx = t.clientX - rect.left; const ty = t.clientY - rect.top;
-            const dx = tx - touchInfo.startX; const dy = ty - touchInfo.startY;
+            const g = screenToGame(t.clientX, t.clientY);
+            const dx = g.x - touchInfo.startX; const dy = g.y - touchInfo.startY;
             if (Math.hypot(dx, dy) > 6) touchInfo.moved = true;
             // on mobile interpolate towards touch position for smoother/slower movement
             if (isMobileDevice()) {
-                const targetX = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, tx - PLAYER_SIZE/2));
-                const targetY = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, ty - PLAYER_SIZE/2));
+                const targetX = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, g.x - PLAYER_SIZE/2));
+                const targetY = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, g.y - PLAYER_SIZE/2));
                 player.x += (targetX - player.x) * 0.28;
                 player.y += (targetY - player.y) * 0.28;
             } else {
                 // immediate positioning (desktop touch or stylus)
-                player.x = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, tx - PLAYER_SIZE/2));
-                player.y = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, ty - PLAYER_SIZE/2));
+                player.x = Math.max(0, Math.min(canvas.width - PLAYER_SIZE, g.x - PLAYER_SIZE/2));
+                player.y = Math.max(0, Math.min(canvas.height - PLAYER_SIZE, g.y - PLAYER_SIZE/2));
             }
             e.preventDefault();
         }
